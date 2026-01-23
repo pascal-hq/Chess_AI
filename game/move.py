@@ -1,7 +1,8 @@
 from typing import Optional, Tuple
-from game.piece import Piece
+from game.piece import Piece, PieceType
 
 Position = Tuple[int, int]
+
 
 class Move:
     def __init__(
@@ -13,32 +14,40 @@ class Move:
         promotion: Optional[str] = None,
         is_castling: bool = False,
         is_en_passant: bool = False,
-        previous_en_passant: Optional[Position] = None,
-        previous_castling_rights: Optional[dict] = None,
-        previous_has_moved: Optional[bool] = None
     ):
         self.start = start
         self.end = end
         self.piece = piece
         self.captured = captured
-        self.promotion = promotion
+
+        # Special move flags
+        self.promotion = promotion        # 'q', 'r', 'b', 'n'
         self.is_castling = is_castling
         self.is_en_passant = is_en_passant
-        self.previous_en_passant = previous_en_passant
-        self.previous_castling_rights = previous_castling_rights
-        self.previous_has_moved = previous_has_moved
 
+        # Stored for undo
+        self.previous_en_passant = None
+        self.previous_castling_rights = None
+        self.previous_has_moved = False
+
+    # --------------------------------------------------
+    # Utility
+    # --------------------------------------------------
     def is_capture(self) -> bool:
         return self.captured is not None
 
-    def notation(self) -> str:
-        """Simple algebraic notation (without disambiguation)."""
-        start_file = chr(self.start[1] + ord('a'))
-        start_rank = str(8 - self.start[0])
-        end_file = chr(self.end[1] + ord('a'))
-        end_rank = str(8 - self.end[0])
-        promo = f"={self.promotion.upper()}" if self.promotion else ""
-        return f"{start_file}{start_rank}{end_file}{end_rank}{promo}"
+    def is_promotion(self) -> bool:
+        return self.promotion is not None
 
+    # --------------------------------------------------
+    # Debug / Display
+    # --------------------------------------------------
     def __repr__(self):
-        return f"<Move {self.notation()}>"
+        return (
+            f"Move({self.start} -> {self.end}, "
+            f"{self.piece.type.name}, "
+            f"capture={self.captured is not None}, "
+            f"promotion={self.promotion}, "
+            f"castling={self.is_castling}, "
+            f"en_passant={self.is_en_passant})"
+        )
