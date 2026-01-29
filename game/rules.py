@@ -15,6 +15,12 @@ class Rules:
     def is_opponent(self, piece: Piece, other: Piece) -> bool:
         return other is not None and piece.color != other.color
 
+    def square_under_attack(self, pos: Position, by_color: Color) -> bool:
+        for move in self.generate_pseudo_legal_moves(by_color):
+            if move.end == pos:
+                return True
+        return False
+
     # ---------------- Move Generation ----------------
     def generate_pseudo_legal_moves(self, color: Color) -> List[Move]:
         moves = []
@@ -50,17 +56,16 @@ class Rules:
         # Forward 1
         forward1 = (row + direction, col)
         if self.in_bounds(forward1) and self.board.is_empty(forward1):
-            # Promotion
             if forward1[0] in [0, 7]:
                 for promo in ['q','r','b','n']:
-                    moves.append(Move(start=pos, end=forward1, piece=piece, promotion=promo))
+                    moves.append(Move(pos, forward1, piece, promotion=promo))
             else:
-                moves.append(Move(start=pos, end=forward1, piece=piece))
+                moves.append(Move(pos, forward1, piece))
 
             # Forward 2
             forward2 = (row + 2*direction, col)
             if row == start_row and self.board.is_empty(forward2):
-                moves.append(Move(start=pos, end=forward2, piece=piece))
+                moves.append(Move(pos, forward2, piece))
 
         # Captures
         for dc in [-1,1]:
@@ -68,23 +73,23 @@ class Rules:
             if self.in_bounds(capture_pos):
                 target = self.board.get_piece(capture_pos)
                 if self.is_opponent(piece, target):
-                    # Promotion capture
                     if capture_pos[0] in [0,7]:
                         for promo in ['q','r','b','n']:
-                            moves.append(Move(start=pos, end=capture_pos, piece=piece, captured=target, promotion=promo))
+                            moves.append(Move(pos, capture_pos, piece, target, promo))
                     else:
-                        moves.append(Move(start=pos, end=capture_pos, piece=piece, captured=target))
+                        moves.append(Move(pos, capture_pos, piece, target))
 
         # En passant
         if self.board.en_passant_target:
             ep_row, ep_col = self.board.en_passant_target
             if ep_row == row + direction and abs(ep_col - col) == 1:
                 captured = self.board.get_piece((row, ep_col))
-                moves.append(Move(start=pos, end=(ep_row, ep_col), piece=piece, captured=captured, is_en_passant=True))
+                if captured and captured.type == PieceType.PAWN:
+                    moves.append(Move(pos, (ep_row, ep_col), piece, captured, is_en_passant=True))
 
         return moves
 
-    # ---------------- Straight-line Moves (Rook, Bishop, Queen) ----------------
+    # ---------------- Sliding Pieces ----------------
     def straight_line_moves(self, piece: Piece, pos: Position, directions: List[Tuple[int,int]]) -> List[Move]:
         moves = []
         for dr, dc in directions:
@@ -96,65 +101,68 @@ class Rules:
                     break
                 target = self.board.get_piece((r,c))
                 if target is None:
-                    moves.append(Move(start=pos, end=(r,c), piece=piece))
+                    moves.append(Move(pos, (r,c), piece))
                 elif self.is_opponent(piece, target):
-                    moves.append(Move(start=pos, end=(r,c), piece=piece, captured=target))
+                    moves.append(Move(pos, (r,c), piece, target))
                     break
                 else:
                     break
         return moves
 
-    # ---------------- Knight Moves ----------------
+    # ---------------- Knight ----------------
     def knight_moves(self, piece: Piece, pos: Position) -> List[Move]:
         moves = []
         row, col = pos
-        deltas = [(-2,-1),(-2,1),(-1,-2),(-1,2),(1,-2),(1,2),(2,-1),(2,1)]
-        for dr, dc in deltas:
+        for dr, dc in [(-2,-1),(-2,1),(-1,-2),(-1,2),(1,-2),(1,2),(2,-1),(2,1)]:
             r, c = row + dr, col + dc
             if self.in_bounds((r,c)):
                 target = self.board.get_piece((r,c))
                 if target is None or self.is_opponent(piece, target):
-                    moves.append(Move(start=pos, end=(r,c), piece=piece, captured=target))
+                    moves.append(Move(pos, (r,c), piece, target))
         return moves
 
-    # ---------------- King Moves ----------------
+    # ---------------- King ----------------
     def king_moves(self, piece: Piece, pos: Position) -> List[Move]:
         moves = []
         row, col = pos
-        deltas = [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]
-        for dr, dc in deltas:
+
+        for dr, dc in [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]:
             r, c = row + dr, col + dc
             if self.in_bounds((r,c)):
                 target = self.board.get_piece((r,c))
                 if target is None or self.is_opponent(piece, target):
-                    moves.append(Move(start=pos, end=(r,c), piece=piece, captured=target))
+                    moves.append(Move(pos, (r,c), piece, target))
 
-        # Castling
-        if not piece.has_moved:
+        # Castling (with safety)
+        opponent = piece.color.opposite()
+        if not piece.has_moved and not self.square_under_attack(pos, opponent):
             if self.can_castle_kingside(piece.color):
-                moves.append(Move(start=pos, end=(row, col+2), piece=piece, is_castling=True))
+                if not self.square_under_attack((row, col+1), opponent) and not self.square_under_attack((row, col+2), opponent):
+                    moves.append(Move(pos, (row, col+2), piece, is_castling=True))
+
             if self.can_castle_queenside(piece.color):
-                moves.append(Move(start=pos, end=(row, col-2), piece=piece, is_castling=True))
+                if not self.square_under_attack((row, col-1), opponent) and not self.square_under_attack((row, col-2), opponent):
+                    moves.append(Move(pos, (row, col-2), piece, is_castling=True))
 
         return moves
 
     # ---------------- Castling Helpers ----------------
     def can_castle_kingside(self, color: Color) -> bool:
         row = 7 if color == Color.WHITE else 0
-        # Rook exists and unmoved
         rook = self.board.get_piece((row,7))
-        if rook is None or rook.has_moved or rook.type != PieceType.ROOK or rook.color != color:
-            return False
-        # Squares between king and rook empty
-        if not all(self.board.is_empty((row,c)) for c in [5,6]):
-            return False
-        return True
+        return (
+            rook
+            and rook.type == PieceType.ROOK
+            and not rook.has_moved
+            and all(self.board.is_empty((row,c)) for c in [5,6])
+        )
 
     def can_castle_queenside(self, color: Color) -> bool:
         row = 7 if color == Color.WHITE else 0
         rook = self.board.get_piece((row,0))
-        if rook is None or rook.has_moved or rook.type != PieceType.ROOK or rook.color != color:
-            return False
-        if not all(self.board.is_empty((row,c)) for c in [1,2,3]):
-            return False
-        return True
+        return (
+            rook
+            and rook.type == PieceType.ROOK
+            and not rook.has_moved
+            and all(self.board.is_empty((row,c)) for c in [1,2,3])
+        )

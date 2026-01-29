@@ -14,13 +14,6 @@ class GameState:
         self.turn = Color.WHITE
         self.move_history: List[Move] = []
 
-        self.castling_rights = {
-            Color.WHITE: {'K': True, 'Q': True},
-            Color.BLACK: {'K': True, 'Q': True}
-        }
-
-        self.en_passant_target: Optional[Position] = None
-
     # --------------------------------------------------
     # Utility
     # --------------------------------------------------
@@ -47,11 +40,10 @@ class GameState:
     # --------------------------------------------------
     def get_legal_moves(self) -> List[Move]:
         legal_moves = []
-        pseudo_moves = self.rules.generate_pseudo_legal_moves(self.turn)
 
-        for move in pseudo_moves:
+        for move in self.rules.generate_pseudo_legal_moves(self.turn):
             self.make_move(move)
-            if not self.is_in_check(self.opponent(self.turn)):
+            if not self.is_in_check(self.turn):
                 legal_moves.append(move)
             self.undo_move()
 
@@ -62,11 +54,10 @@ class GameState:
     # --------------------------------------------------
     def make_move(self, move: Move):
         # Save state for undo
-        move.previous_en_passant = self.en_passant_target
-        move.previous_castling_rights = copy.deepcopy(self.castling_rights)
+        move.previous_en_passant = self.board.en_passant_target
         move.previous_has_moved = move.piece.has_moved
 
-        self.en_passant_target = None
+        self.board.en_passant_target = None
 
         # ---------------- En Passant Capture ----------------
         if move.is_en_passant:
@@ -81,51 +72,39 @@ class GameState:
         # ---------------- Castling ----------------
         if move.is_castling:
             row = move.start[0]
-
-            if move.end[1] > move.start[1]:  # king-side
-                rook_start = (row, 7)
-                rook_end = (row, 5)
-            else:  # queen-side
-                rook_start = (row, 0)
-                rook_end = (row, 3)
+            if move.end[1] > move.start[1]:  # kingside
+                rook_start, rook_end = (row, 7), (row, 5)
+            else:  # queenside
+                rook_start, rook_end = (row, 0), (row, 3)
 
             rook = self.board.get_piece(rook_start)
             self.board.move_piece(rook_start, rook_end)
             rook.has_moved = True
 
-        # ---------------- Pawn Promotion ----------------
+        # ---------------- Promotion ----------------
         if move.promotion:
+            move.captured = None  # promotions never capture on the end square
             promoted_piece = Piece(
                 {
                     'q': PieceType.QUEEN,
                     'r': PieceType.ROOK,
                     'b': PieceType.BISHOP,
-                    'n': PieceType.KNIGHT
+                    'n': PieceType.KNIGHT,
                 }[move.promotion],
-                move.piece.color
+                move.piece.color,
             )
+            promoted_piece.has_moved = True
             self.board.set_piece(move.end, promoted_piece)
 
-        # ---------------- Set En Passant Target ----------------
+        # ---------------- En Passant Target ----------------
         if (
             move.piece.type == PieceType.PAWN
             and abs(move.start[0] - move.end[0]) == 2
         ):
-            self.en_passant_target = (
+            self.board.en_passant_target = (
                 (move.start[0] + move.end[0]) // 2,
-                move.start[1]
+                move.start[1],
             )
-
-        # ---------------- Update Castling Rights ----------------
-        if move.piece.type == PieceType.KING:
-            self.castling_rights[move.piece.color]['K'] = False
-            self.castling_rights[move.piece.color]['Q'] = False
-
-        elif move.piece.type == PieceType.ROOK:
-            if move.start[1] == 0:
-                self.castling_rights[move.piece.color]['Q'] = False
-            elif move.start[1] == 7:
-                self.castling_rights[move.piece.color]['K'] = False
 
         # ---------------- Finish ----------------
         self.move_history.append(move)
@@ -141,9 +120,8 @@ class GameState:
         move = self.move_history.pop()
         self.turn = self.opponent(self.turn)
 
-        # Restore saved state
-        self.castling_rights = move.previous_castling_rights
-        self.en_passant_target = move.previous_en_passant
+        # Restore state
+        self.board.en_passant_target = move.previous_en_passant
 
         # ---------------- Undo Promotion ----------------
         if move.promotion:
@@ -152,13 +130,10 @@ class GameState:
         # ---------------- Undo Castling ----------------
         if move.is_castling:
             row = move.start[0]
-
             if move.end[1] > move.start[1]:
-                rook_start = (row, 7)
-                rook_end = (row, 5)
+                rook_start, rook_end = (row, 7), (row, 5)
             else:
-                rook_start = (row, 0)
-                rook_end = (row, 3)
+                rook_start, rook_end = (row, 0), (row, 3)
 
             rook = self.board.get_piece(rook_end)
             self.board.move_piece(rook_end, rook_start)
