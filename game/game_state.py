@@ -50,6 +50,49 @@ class GameState:
         return legal_moves
 
     # --------------------------------------------------
+    # Game End Detection
+    # --------------------------------------------------
+    def is_checkmate(self, color: Color) -> bool:
+        if not self.is_in_check(color):
+            return False
+
+        current_turn = self.turn
+        self.turn = color
+
+        if len(self.get_legal_moves()) == 0:
+            self.turn = current_turn
+            return True
+
+        self.turn = current_turn
+        return False
+
+    def is_stalemate(self, color: Color) -> bool:
+        if self.is_in_check(color):
+            return False
+
+        current_turn = self.turn
+        self.turn = color
+
+        if len(self.get_legal_moves()) == 0:
+            self.turn = current_turn
+            return True
+
+        self.turn = current_turn
+        return False
+
+    def get_game_status(self) -> str:
+        if self.is_checkmate(self.turn):
+            return f"Checkmate! {self.opponent(self.turn).name} wins"
+
+        if self.is_stalemate(self.turn):
+            return "Stalemate"
+
+        if self.is_in_check(self.turn):
+            return "Check"
+
+        return "Ongoing"
+
+    # --------------------------------------------------
     # Make Move
     # --------------------------------------------------
     def make_move(self, move: Move):
@@ -83,7 +126,6 @@ class GameState:
 
         # ---------------- Promotion ----------------
         if move.promotion:
-            move.captured = None  # promotions never capture on the end square
             promoted_piece = Piece(
                 {
                     'q': PieceType.QUEEN,
